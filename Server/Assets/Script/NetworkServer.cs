@@ -5,6 +5,7 @@ using Unity.Networking.Transport;
 using Unity.Networking.Transport.Relay;
 using System.Text;
 
+
 public class NetworkServer : MonoBehaviour
 {
     public NetworkDriver networkDriver;
@@ -16,6 +17,21 @@ public class NetworkServer : MonoBehaviour
     const ushort NetworkPort = 9001;
 
     const int MaxNumberOfClientConnections = 1000;
+
+    [System.Serializable]
+    public class LoginRequest
+    {
+        public string action;
+        public string username;
+        public string password;
+    }
+
+    [System.Serializable]
+    public class ServerResponse
+    {
+        public string status;
+        public string message;
+    }
 
     void Start()
     {

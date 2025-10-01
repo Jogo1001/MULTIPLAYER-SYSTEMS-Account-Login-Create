@@ -15,6 +15,21 @@ public class NetworkClient : MonoBehaviour
     const ushort NetworkPort = 9001;
     const string IPAddress = "192.168.2.19";
 
+
+    [System.Serializable]
+    public class LoginRequest
+    {
+        public string action;
+        public string username;
+        public string password;
+    }
+
+    [System.Serializable]
+    public class ServerResponse
+    {
+        public string status;
+        public string message;
+    }
     void Start()
     {
         networkDriver = NetworkDriver.Create();
