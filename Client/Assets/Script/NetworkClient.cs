@@ -116,7 +116,8 @@ public class NetworkClient : MonoBehaviour
 
     private void ProcessReceivedMsg(string msg)
     {
-        Debug.Log("Msg received = " + msg);
+        ServerResponse response = JsonUtility.FromJson<ServerResponse>(msg);
+        Debug.Log($"Server Response: {response.status} - {response.message}");
     }
 
     public void SendMessageToServer(string msg)
@@ -131,6 +132,31 @@ public class NetworkClient : MonoBehaviour
         networkDriver.EndSend(streamWriter);
 
         buffer.Dispose();
+    }
+    public void SendLoginRequest(string username, string password)
+    {
+        LoginRequest req = new LoginRequest
+        {
+            action = "login",
+            username = username,
+            password = password
+        };
+
+        string json = JsonUtility.ToJson(req);
+        SendMessageToServer(json);
+    }
+
+    public void SendCreateAccountRequest(string username, string password)
+    {
+        LoginRequest req = new LoginRequest
+        {
+            action = "create",
+            username = username,
+            password = password
+        };
+
+        string json = JsonUtility.ToJson(req);
+        SendMessageToServer(json);
     }
 
 }
