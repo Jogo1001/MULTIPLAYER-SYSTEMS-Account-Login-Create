@@ -4,6 +4,7 @@ using Unity.Collections;
 using Unity.Networking.Transport;
 using Unity.Networking.Transport.Relay;
 using System.Text;
+using System.Collections.Generic;
 
 
 public class NetworkServer : MonoBehaviour
@@ -32,6 +33,8 @@ public class NetworkServer : MonoBehaviour
         public string status;
         public string message;
     }
+
+
 
     void Start()
     {
@@ -120,7 +123,7 @@ public class NetworkServer : MonoBehaviour
                         streamReader.ReadBytes(buffer);
                         byte[] byteBuffer = buffer.ToArray();
                         string msg = Encoding.Unicode.GetString(byteBuffer);
-                        ProcessReceivedMsg(msg);
+                        ProcessReceivedMsg(msg, networkConnections[i]);
                         buffer.Dispose();
                         break;
                     case NetworkEvent.Type.Disconnect:
@@ -152,12 +155,54 @@ public class NetworkServer : MonoBehaviour
             return false;
         return true;
     }
-
-    private void ProcessReceivedMsg(string msg)
+    private Dictionary<string, string> accounts = new Dictionary<string, string>();
+    private Dictionary<NetworkConnection, string> loggedInUsers = new Dictionary<NetworkConnection, string>();
+    private void ProcessReceivedMsg(string msg, NetworkConnection conn)
     {
         Debug.Log("Msg received = " + msg);
-    }
 
+        LoginRequest request = JsonUtility.FromJson<LoginRequest>(msg);
+
+        if (request.action == "create")
+        {
+            if (accounts.ContainsKey(request.username))
+            {
+                SendResponse("error", "Username already exists", conn);
+            }
+            else
+            {
+                accounts[request.username] = request.password;
+                SendResponse("success", "Account created!", conn);
+            }
+        }
+        else if (request.action == "login")
+        {
+            if (!accounts.ContainsKey(request.username))
+            {
+                SendResponse("error", "Account not found", conn);
+            }
+            else if (accounts[request.username] != request.password)
+            {
+                SendResponse("error", "Invalid password", conn);
+            }
+            else
+            {
+                loggedInUsers[conn] = request.username;
+                SendResponse("success", "Login successful!", conn);
+            }
+        }
+    }
+    private void SendResponse(string status, string message, NetworkConnection conn)
+    {
+        ServerResponse response = new ServerResponse
+        {
+            status = status,
+            message = message
+        };
+
+        string json = JsonUtility.ToJson(response);
+        SendMessageToClient(json, conn);
+    }
     public void SendMessageToClient(string msg, NetworkConnection networkConnection)
     {
         byte[] msgAsByteArray = Encoding.Unicode.GetBytes(msg);
