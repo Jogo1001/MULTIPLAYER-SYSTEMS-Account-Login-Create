@@ -114,20 +114,26 @@ public class NetworkClient : MonoBehaviour
         return true;
     }
 
+
+
     private void ProcessReceivedMsg(string msg)
     {
+
+        // handle server response (login and account creation)
         ServerResponse response = JsonUtility.FromJson<ServerResponse>(msg);
         Debug.Log($"Server Response: {response.status} - {response.message}");
 
-        // Forward to UI
+        // Forward a response to UI
         FindObjectOfType<LoginUI>()?.SetFeedback(response.message);
 
+        // if login is successful, switch to ui state
         if (response.status == "success" && response.message.Contains("Login successful"))
         {
             FindObjectOfType<LoginUI>()?.SwitchToLoggedInUI();
         }
     }
 
+    //sends a string message to server
     public void SendMessageToServer(string msg)
     {
         byte[] msgAsByteArray = Encoding.Unicode.GetBytes(msg);
@@ -141,6 +147,8 @@ public class NetworkClient : MonoBehaviour
 
         buffer.Dispose();
     }
+
+    //sends a login request to server
     public void SendLoginRequest(string username, string password)
     {
         LoginRequest req = new LoginRequest
@@ -154,6 +162,7 @@ public class NetworkClient : MonoBehaviour
         SendMessageToServer(json);
     }
 
+    //sends an account request to server
     public void SendCreateAccountRequest(string username, string password)
     {
         LoginRequest req = new LoginRequest

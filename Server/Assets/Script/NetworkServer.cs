@@ -157,6 +157,10 @@ public class NetworkServer : MonoBehaviour
     }
     private Dictionary<string, string> accounts = new Dictionary<string, string>();
     private Dictionary<NetworkConnection, string> loggedInUsers = new Dictionary<NetworkConnection, string>();
+
+
+
+    // prococess a message from client
     private void ProcessReceivedMsg(string msg, NetworkConnection conn)
     {
         Debug.Log("Msg received = " + msg);
@@ -192,6 +196,8 @@ public class NetworkServer : MonoBehaviour
             }
         }
     }
+
+    // sends a response to client using JSON
     private void SendResponse(string status, string message, NetworkConnection conn)
     {
         ServerResponse response = new ServerResponse
@@ -203,6 +209,8 @@ public class NetworkServer : MonoBehaviour
         string json = JsonUtility.ToJson(response);
         SendMessageToClient(json, conn);
     }
+
+    //sends a string message to client
     public void SendMessageToClient(string msg, NetworkConnection networkConnection)
     {
         byte[] msgAsByteArray = Encoding.Unicode.GetBytes(msg);
