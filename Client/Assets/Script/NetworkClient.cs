@@ -118,6 +118,14 @@ public class NetworkClient : MonoBehaviour
     {
         ServerResponse response = JsonUtility.FromJson<ServerResponse>(msg);
         Debug.Log($"Server Response: {response.status} - {response.message}");
+
+        // Forward to UI
+        FindObjectOfType<LoginUI>()?.SetFeedback(response.message);
+
+        if (response.status == "success" && response.message.Contains("Login successful"))
+        {
+            FindObjectOfType<LoginUI>()?.SwitchToLoggedInUI();
+        }
     }
 
     public void SendMessageToServer(string msg)

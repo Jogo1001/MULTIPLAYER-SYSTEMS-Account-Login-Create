@@ -8,6 +8,8 @@ public class LoginUI : MonoBehaviour
     public TMP_InputField usernameField;
     public TMP_InputField passwordField;
     public TMP_Text feedbackText;
+    public GameObject loginPanel;
+    public GameObject loggedInPanel;
 
     public void OnLoginClicked()
     {
@@ -23,5 +25,11 @@ public class LoginUI : MonoBehaviour
     public void SetFeedback(string message)
     {
         feedbackText.text = message;
+    }
+    public void SwitchToLoggedInUI()
+    {
+        loginPanel.SetActive(false);
+        loggedInPanel.SetActive(true);
+        SetFeedback("Welcome!");
     }
 }

@@ -209,9 +209,9 @@ public class NetworkServer : MonoBehaviour
         NativeArray<byte> buffer = new NativeArray<byte>(msgAsByteArray, Allocator.Persistent);
 
 
-        //Driver.BeginSend(m_Connection, out var writer);
+       
         DataStreamWriter streamWriter;
-        //networkConnection.
+     
         networkDriver.BeginSend(reliableAndInOrderPipeline, networkConnection, out streamWriter);
         streamWriter.WriteInt(buffer.Length);
         streamWriter.WriteBytes(buffer);
