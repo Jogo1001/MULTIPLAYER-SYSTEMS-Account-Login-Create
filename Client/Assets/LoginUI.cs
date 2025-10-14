@@ -28,7 +28,7 @@ public class LoginUI : MonoBehaviour
         networkClient.SendCreateAccountRequest(usernameField.text, passwordField.text);
     }
 
-   // updates feedback text
+    // updates feedback text
     public void SetFeedback(string message)
     {
         feedbackText.text = message;

@@ -2,10 +2,7 @@ using UnityEngine;
 using UnityEngine.Assertions;
 using Unity.Collections;
 using Unity.Networking.Transport;
-using Unity.Networking.Transport.Relay;
 using System.Text;
-using System.Collections.Generic;
-
 
 public class NetworkServer : MonoBehaviour
 {
@@ -15,7 +12,7 @@ public class NetworkServer : MonoBehaviour
     NetworkPipeline reliableAndInOrderPipeline;
     NetworkPipeline nonReliableNotInOrderedPipeline;
 
-    const ushort NetworkPort = 9001;
+    const ushort NetworkPort = 9002;
 
     const int MaxNumberOfClientConnections = 1000;
 
@@ -33,8 +30,6 @@ public class NetworkServer : MonoBehaviour
         public string status;
         public string message;
     }
-
-
 
     void Start()
     {
@@ -155,71 +150,60 @@ public class NetworkServer : MonoBehaviour
             return false;
         return true;
     }
-    private Dictionary<string, string> accounts = new Dictionary<string, string>();
-    private Dictionary<NetworkConnection, string> loggedInUsers = new Dictionary<NetworkConnection, string>();
 
-
-
-    // prococess a message from client
-    private void ProcessReceivedMsg(string msg, NetworkConnection conn)
+    private void ProcessReceivedMsg(string msg, NetworkConnection sender)
     {
-        Debug.Log("Msg received = " + msg);
+        Debug.Log($" Received message: {msg}");
 
-        LoginRequest request = JsonUtility.FromJson<LoginRequest>(msg);
-
-        if (request.action == "create")
+        try
         {
-            if (accounts.ContainsKey(request.username))
+            LoginRequest request = JsonUtility.FromJson<LoginRequest>(msg);
+
+            if (request == null || string.IsNullOrEmpty(request.action))
             {
-                SendResponse("error", "Username already exists", conn);
+                Debug.LogWarning(" Invalid message format");
+                return;
+            }
+
+            ServerResponse response = new ServerResponse();
+
+            if (request.action == "create")
+            {
+                Debug.Log($" Account created for username: {request.username}");
+                response.status = "success";
+                response.message = "Account created successfully!";
+            }
+            else if (request.action == "login")
+            {
+                Debug.Log($" Login successful for username: {request.username}");
+                response.status = "success";
+                response.message = "Login successful!";
             }
             else
             {
-                accounts[request.username] = request.password;
-                SendResponse("success", "Account created!", conn);
+                Debug.LogWarning($" Unknown action: {request.action}");
+                response.status = "error";
+                response.message = "Unknown action.";
             }
+
+            string jsonResponse = JsonUtility.ToJson(response);
+            SendMessageToClient(jsonResponse, sender);
         }
-        else if (request.action == "login")
+        catch (System.Exception e)
         {
-            if (!accounts.ContainsKey(request.username))
-            {
-                SendResponse("error", "Account not found", conn);
-            }
-            else if (accounts[request.username] != request.password)
-            {
-                SendResponse("error", "Invalid password", conn);
-            }
-            else
-            {
-                loggedInUsers[conn] = request.username;
-                SendResponse("success", "Login successful!", conn);
-            }
+            Debug.LogError($" Error processing message: {e.Message}");
         }
     }
 
-    // sends a response to client using JSON
-    private void SendResponse(string status, string message, NetworkConnection conn)
-    {
-        ServerResponse response = new ServerResponse
-        {
-            status = status,
-            message = message
-        };
-
-        string json = JsonUtility.ToJson(response);
-        SendMessageToClient(json, conn);
-    }
-
-    //sends a string message to client
     public void SendMessageToClient(string msg, NetworkConnection networkConnection)
     {
         byte[] msgAsByteArray = Encoding.Unicode.GetBytes(msg);
         NativeArray<byte> buffer = new NativeArray<byte>(msgAsByteArray, Allocator.Persistent);
 
 
-       
+        //Driver.BeginSend(m_Connection, out var writer);
         DataStreamWriter streamWriter;
-     
+        //networkConnection.
         networkDriver.BeginSend(reliableAndInOrderPipeline, networkConnection, out streamWriter);
         streamWriter.WriteInt(buffer.Length);
         streamWriter.WriteBytes(buffer);

@@ -2,8 +2,6 @@ using UnityEngine;
 using UnityEngine.Assertions;
 using Unity.Collections;
 using Unity.Networking.Transport;
-using Unity.Networking.Transport.Relay;
-using UnityEngine.InputSystem;
 using System.Text;
 
 public class NetworkClient : MonoBehaviour
@@ -12,9 +10,8 @@ public class NetworkClient : MonoBehaviour
     NetworkConnection networkConnection;
     NetworkPipeline reliableAndInOrderPipeline;
     NetworkPipeline nonReliableNotInOrderedPipeline;
-    const ushort NetworkPort = 9001;
+    const ushort NetworkPort = 9002;
     const string IPAddress = "192.168.2.19";
-
 
     [System.Serializable]
     public class LoginRequest
@@ -114,26 +111,39 @@ public class NetworkClient : MonoBehaviour
         return true;
     }
 
-
-
     private void ProcessReceivedMsg(string msg)
     {
-
-        // handle server response (login and account creation)
+        // handle server response
         ServerResponse response = JsonUtility.FromJson<ServerResponse>(msg);
         Debug.Log($"Server Response: {response.status} - {response.message}");
 
-        // Forward a response to UI
-        FindObjectOfType<LoginUI>()?.SetFeedback(response.message);
+        var ui = FindObjectOfType<LoginUI>();
+        if (ui == null)
+            return;
 
-        // if login is successful, switch to ui state
+        // Forward a response to UI feedback
+        ui.SetFeedback(response.message);
+
+        // If login is successful, switch UI and update feedback text
         if (response.status == "success" && response.message.Contains("Login successful"))
         {
-            FindObjectOfType<LoginUI>()?.SwitchToLoggedInUI();
+            ui.SwitchToLoggedInUI();
+            ui.SetFeedback(" Login successful! Welcome, " + ui.usernameField.text + "!");
+        }
+
+        // If account creation is successful, show feedback
+        else if (response.status == "success" && response.message.Contains("Account created"))
+        {
+            ui.SetFeedback("Account created successfully! You can now log in.");
+        }
+
+        // If there’s an error message
+        else if (response.status == "error")
+        {
+            ui.SetFeedback("x " + response.message);
         }
     }
 
-    //sends a string message to server
     public void SendMessageToServer(string msg)
     {
         byte[] msgAsByteArray = Encoding.Unicode.GetBytes(msg);
@@ -147,8 +157,6 @@ public class NetworkClient : MonoBehaviour
 
         buffer.Dispose();
     }
-
-    //sends a login request to server
     public void SendLoginRequest(string username, string password)
     {
         LoginRequest req = new LoginRequest
@@ -175,6 +183,5 @@ public class NetworkClient : MonoBehaviour
         string json = JsonUtility.ToJson(req);
         SendMessageToServer(json);
     }
-
 }
 
