@@ -48,8 +48,8 @@ public class NetworkClient : MonoBehaviour
     {
         #region Check Input and Send Msg
 
-        if (Input.GetKeyDown(KeyCode.A))
-            SendMessageToServer("Hello server's world, sincerely your network client");
+/*        if (Input.GetKeyDown(KeyCode.A))
+            SendMessageToServer("Hello server's world, sincerely your network client");*/
 
         #endregion
 
