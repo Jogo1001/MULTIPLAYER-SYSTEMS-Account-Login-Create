@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.Assertions;
 using Unity.Collections;
 using Unity.Networking.Transport;
 using System.Text;
@@ -8,318 +7,219 @@ using System.Collections.Generic;
 public class NetworkServer : MonoBehaviour
 {
     public NetworkDriver networkDriver;
-    private NativeList<NetworkConnection> networkConnections;
+    private NativeList<NetworkConnection> connections;
 
-    NetworkPipeline reliableAndInOrderPipeline;
-    NetworkPipeline nonReliableNotInOrderedPipeline;
+    private NetworkPipeline reliablePipeline;
+    private NetworkPipeline unreliablePipeline;
 
-    const ushort NetworkPort = 9002;
+    private const ushort Port = 9002;
+    private const int MaxConnections = 1000;
 
-    const int MaxNumberOfClientConnections = 1000;
+    private Dictionary<string, List<NetworkConnection>> gameRooms = new();
 
-    [System.Serializable]
-    public class LoginRequest
-    {
-        public string action;
-        public string username;
-        public string password;
-    }
+    
+    [System.Serializable] public class BaseMessage { public string action; }
+    [System.Serializable] public class LoginRequest : BaseMessage { public string username; public string password; }
+    [System.Serializable] public class RoomRequest : BaseMessage { public string roomName; }
+    [System.Serializable] public class PlayMessage : BaseMessage { public string content; }
+    [System.Serializable] public class ServerResponse { public string status; public string message; }
+   
 
-    [System.Serializable]
-    public class ServerResponse
-    {
-        public string status;
-        public string message;
-    }
-    [System.Serializable]
-    public class RoomRequest
-    {
-        public string action;
-        public string roomName;
-    }
-
-    [System.Serializable]
-    public class PlayMessage
-    {
-        public string action;
-        public string content;
-    }
-    private Dictionary<string, List<NetworkConnection>> gameRooms = new Dictionary<string, List<NetworkConnection>>();
     void Start()
     {
         networkDriver = NetworkDriver.Create();
-        reliableAndInOrderPipeline = networkDriver.CreatePipeline(typeof(FragmentationPipelineStage), typeof(ReliableSequencedPipelineStage));
-        nonReliableNotInOrderedPipeline = networkDriver.CreatePipeline(typeof(FragmentationPipelineStage));
-        NetworkEndpoint endpoint = NetworkEndpoint.AnyIpv4;
-        endpoint.Port = NetworkPort;
+        reliablePipeline = networkDriver.CreatePipeline(typeof(FragmentationPipelineStage), typeof(ReliableSequencedPipelineStage));
+        unreliablePipeline = networkDriver.CreatePipeline(typeof(FragmentationPipelineStage));
 
-        int error = networkDriver.Bind(endpoint);
-        if (error != 0)
-            Debug.Log("Failed to bind to port " + NetworkPort);
+        var endpoint = NetworkEndpoint.AnyIpv4;
+        endpoint.Port = Port;
+
+        if (networkDriver.Bind(endpoint) != 0)
+            Debug.LogError($"Failed to bind to port {Port}");
         else
             networkDriver.Listen();
 
-        networkConnections = new NativeList<NetworkConnection>(MaxNumberOfClientConnections, Allocator.Persistent);
+        connections = new NativeList<NetworkConnection>(MaxConnections, Allocator.Persistent);
+        Debug.Log($"[Server] Listening on port {Port}");
     }
 
     void OnDestroy()
     {
         networkDriver.Dispose();
-        networkConnections.Dispose();
+        connections.Dispose();
     }
 
     void Update()
     {
-        #region Check Input and Send Msg
-
-        if (Input.GetKeyDown(KeyCode.A))
-        {
-            for (int i = 0; i < networkConnections.Length; i++)
-            {
-                SendMessageToClient("Hello client's world, sincerely your network server", networkConnections[i]);
-            }
-        }
-
-        #endregion
-
         networkDriver.ScheduleUpdate().Complete();
 
-        #region Remove Unused Connections
+        CleanConnections();
+        AcceptConnections();
+        ProcessNetworkEvents();
+    }
 
-        for (int i = 0; i < networkConnections.Length; i++)
+    private void CleanConnections()
+    {
+        for (int i = 0; i < connections.Length; i++)
         {
-            if (!networkConnections[i].IsCreated)
+            if (!connections[i].IsCreated)
             {
-                networkConnections.RemoveAtSwapBack(i);
+                connections.RemoveAtSwapBack(i);
                 i--;
             }
         }
+    }
 
-        #endregion
-
-        #region Accept New Connections
-
-        while (AcceptIncomingConnection())
+    private void AcceptConnections()
+    {
+        NetworkConnection conn;
+        while ((conn = networkDriver.Accept()) != default)
         {
-            Debug.Log("Accepted a client connection");
+            connections.Add(conn);
+            Debug.Log($"[Server] Accepted new connection. Total: {connections.Length}");
         }
+    }
 
-        #endregion
-
-        #region Manage Network Events
-
-        DataStreamReader streamReader;
-        NetworkPipeline pipelineUsedToSendEvent;
-        NetworkEvent.Type networkEventType;
-
-        for (int i = 0; i < networkConnections.Length; i++)
+    private void ProcessNetworkEvents()
+    {
+        for (int i = 0; i < connections.Length; i++)
         {
-            if (!networkConnections[i].IsCreated)
-                continue;
+            var conn = connections[i];
+            if (!conn.IsCreated) continue;
 
-            while (PopNetworkEventAndCheckForData(networkConnections[i], out networkEventType, out streamReader, out pipelineUsedToSendEvent))
+            NetworkEvent.Type eventType;
+            DataStreamReader reader;
+            NetworkPipeline pipeline;
+
+            while ((eventType = conn.PopEvent(networkDriver, out reader, out pipeline)) != NetworkEvent.Type.Empty)
             {
-                if (pipelineUsedToSendEvent == reliableAndInOrderPipeline)
-                    Debug.Log("Network event from: reliableAndInOrderPipeline");
-                else if (pipelineUsedToSendEvent == nonReliableNotInOrderedPipeline)
-                    Debug.Log("Network event from: nonReliableNotInOrderedPipeline");
-
-                switch (networkEventType)
+                switch (eventType)
                 {
                     case NetworkEvent.Type.Data:
-                        int sizeOfDataBuffer = streamReader.ReadInt();
-                        NativeArray<byte> buffer = new NativeArray<byte>(sizeOfDataBuffer, Allocator.Persistent);
-                        streamReader.ReadBytes(buffer);
-                        byte[] byteBuffer = buffer.ToArray();
-                        string msg = Encoding.Unicode.GetString(byteBuffer);
-                        ProcessReceivedMsg(msg, networkConnections[i]);
-                        buffer.Dispose();
+                        HandleDataEvent(conn, reader);
                         break;
+
                     case NetworkEvent.Type.Disconnect:
-                        Debug.Log("Client has disconnected from server");
-                        networkConnections[i] = default(NetworkConnection);
+                        HandleDisconnect(conn);
+                        connections[i] = default;
                         break;
                 }
             }
         }
-
-        #endregion
     }
 
-    private bool AcceptIncomingConnection()
+    private void HandleDataEvent(NetworkConnection sender, DataStreamReader reader)
     {
-        NetworkConnection connection = networkDriver.Accept();
-        if (connection == default(NetworkConnection))
-            return false;
+        int size = reader.ReadInt();
+        var buffer = new NativeArray<byte>(size, Allocator.Temp);
+        reader.ReadBytes(buffer);
+        string msg = Encoding.Unicode.GetString(buffer.ToArray());
+        buffer.Dispose();
 
-        networkConnections.Add(connection);
-        return true;
+        Debug.Log($"[Server] Received: {msg}");
+        ProcessMessage(msg, sender);
     }
 
-    private bool PopNetworkEventAndCheckForData(NetworkConnection networkConnection, out NetworkEvent.Type networkEventType, out DataStreamReader streamReader, out NetworkPipeline pipelineUsedToSendEvent)
+    private void HandleDisconnect(NetworkConnection conn)
     {
-        networkEventType = networkConnection.PopEvent(networkDriver, out streamReader, out pipelineUsedToSendEvent);
-
-        if (networkEventType == NetworkEvent.Type.Empty)
-            return false;
-        return true;
+        Debug.Log($"[Server] Client disconnected.");
+        RemoveFromAllRooms(conn);
     }
 
-    private void ProcessReceivedMsg(string msg, NetworkConnection sender)
+    private void ProcessMessage(string json, NetworkConnection sender)
     {
-        Debug.Log($" Received message: {msg}");
-
         try
         {
-            LoginRequest request = JsonUtility.FromJson<LoginRequest>(msg);
-            var req = JsonUtility.FromJson<LoginRequest>(msg);
-
-            if (request == null || string.IsNullOrEmpty(request.action))
+            var baseMsg = JsonUtility.FromJson<BaseMessage>(json);
+            if (baseMsg == null || string.IsNullOrEmpty(baseMsg.action))
             {
-                Debug.LogWarning(" Invalid message format");
-                return;
-            }
-            if (req != null && (req.action == "login" || req.action == "create"))
-            {
-                HandleLogin(req, sender);
-                return;
-            }
-            if (req != null && (req.action == "login" || req.action == "create"))
-            {
-                HandleLogin(req, sender);
+                Debug.LogWarning("Invalid message received.");
                 return;
             }
 
-            // Handle room-related actions
-            var roomReq = JsonUtility.FromJson<RoomRequest>(msg);
-            if (roomReq != null && roomReq.action == "joinOrCreateRoom")
+            switch (baseMsg.action)
             {
-                HandleJoinOrCreateRoom(roomReq.roomName, sender);
-                return;
-            }
+                case "login":
+                case "create":
+                    HandleLogin(JsonUtility.FromJson<LoginRequest>(json), sender);
+                    break;
 
-            if (roomReq != null && roomReq.action == "leaveRoom")
-            {
-                HandleLeaveRoom(sender);
-                return;
-            }
+                case "joinOrCreateRoom":
+                    HandleJoinOrCreateRoom(JsonUtility.FromJson<RoomRequest>(json), sender);
+                    break;
 
-            var playMsg = JsonUtility.FromJson<PlayMessage>(msg);
-            if (playMsg != null && playMsg.action == "playAction")
-            {
-                HandlePlayMessage(playMsg.content, sender);
-                return;
-            }
-            ServerResponse response = new ServerResponse();
+                case "leaveRoom":
+                    HandleLeaveRoom(sender);
+                    break;
 
-            if (request.action == "create")
-            {
-                Debug.Log($" Account created for username: {request.username}");
-                response.status = "success";
-                response.message = "Account created successfully!";
-            }
-            else if (request.action == "login")
-            {
-                Debug.Log($" Login successful for username: {request.username}");
-                response.status = "success";
-                response.message = "Login successful!";
-            }
-            else
-            {
-                Debug.LogWarning($" Unknown action: {request.action}");
-                response.status = "error";
-                response.message = "Unknown action.";
-            }
+                case "playAction":
+                    HandlePlay(JsonUtility.FromJson<PlayMessage>(json), sender);
+                    break;
 
-            string jsonResponse = JsonUtility.ToJson(response);
-            SendMessageToClient(jsonResponse, sender);
+                default:
+                    Debug.LogWarning($"Unknown action: {baseMsg.action}");
+                    break;
+            }
         }
         catch (System.Exception e)
         {
-            Debug.LogError($" Error processing message: {e.Message}");
+            Debug.LogError($"Error processing message: {e.Message}");
         }
     }
 
-    public void SendMessageToClient(string msg, NetworkConnection networkConnection)
+    private void HandleLogin(LoginRequest req, NetworkConnection sender)
     {
-        byte[] msgAsByteArray = Encoding.Unicode.GetBytes(msg);
-        NativeArray<byte> buffer = new NativeArray<byte>(msgAsByteArray, Allocator.Persistent);
-
-
-        //Driver.BeginSend(m_Connection, out var writer);
-        DataStreamWriter streamWriter;
-        //networkConnection.
-        networkDriver.BeginSend(reliableAndInOrderPipeline, networkConnection, out streamWriter);
-        streamWriter.WriteInt(buffer.Length);
-        streamWriter.WriteBytes(buffer);
-        networkDriver.EndSend(streamWriter);
-
-        buffer.Dispose();
-    }
-    private void HandleLogin(LoginRequest request, NetworkConnection sender)
-    {
-        ServerResponse response = new ServerResponse
+        var response = new ServerResponse
         {
             status = "success",
-            message = request.action == "create" ? "Account created successfully!" : "Login successful!"
+            message = req.action == "create"
+                ? "Account created successfully!"
+                : "Login successful!"
         };
-        SendMessageToClient(JsonUtility.ToJson(response), sender);
+        SendJson(sender, response);
     }
 
-    private void HandleJoinOrCreateRoom(string roomName, NetworkConnection sender)
+    private void HandleJoinOrCreateRoom(RoomRequest req, NetworkConnection sender)
     {
-        if (!gameRooms.ContainsKey(roomName))
-            gameRooms[roomName] = new List<NetworkConnection>();
+        if (!gameRooms.ContainsKey(req.roomName))
+            gameRooms[req.roomName] = new List<NetworkConnection>();
 
-        var room = gameRooms[roomName];
+        var room = gameRooms[req.roomName];
+        if (room.Contains(sender)) return;
 
-        if (!room.Contains(sender))
-            room.Add(sender);
-
-        ServerResponse response = new ServerResponse();
+        room.Add(sender);
+        var response = new ServerResponse { status = "success" };
 
         if (room.Count == 1)
         {
-            response.status = "success";
-            response.message = "waiting for opponent...";
-            SendMessageToClient(JsonUtility.ToJson(response), sender);
+            response.message = "Waiting for opponent...";
+            SendJson(sender, response);
         }
         else if (room.Count == 2)
         {
-            response.status = "success";
-            response.message = "joined room - start playing!";
-            SendMessageToClient(JsonUtility.ToJson(response), room[0]);
-            SendMessageToClient(JsonUtility.ToJson(response), room[1]);
+            response.message = "Joined room - start playing!";
+            foreach (var conn in room)
+                SendJson(conn, response);
         }
         else
         {
             response.status = "error";
             response.message = "Room full.";
-            SendMessageToClient(JsonUtility.ToJson(response), sender);
+            SendJson(sender, response);
         }
     }
 
     private void HandleLeaveRoom(NetworkConnection sender)
     {
-        foreach (var room in gameRooms)
-        {
-            if (room.Value.Contains(sender))
-            {
-                room.Value.Remove(sender);
-                if (room.Value.Count == 0)
-                    gameRooms.Remove(room.Key);
-                break;
-            }
-        }
-
-        SendMessageToClient(JsonUtility.ToJson(new ServerResponse
+        RemoveFromAllRooms(sender);
+        SendJson(sender, new ServerResponse
         {
             status = "info",
             message = "You have left the room."
-        }), sender);
+        });
     }
 
-    private void HandlePlayMessage(string content, NetworkConnection sender)
+    private void HandlePlay(PlayMessage msg, NetworkConnection sender)
     {
         foreach (var room in gameRooms)
         {
@@ -328,17 +228,39 @@ public class NetworkServer : MonoBehaviour
                 foreach (var conn in room.Value)
                 {
                     if (conn != sender)
-                    {
-                        SendMessageToClient(JsonUtility.ToJson(new ServerResponse
+                        SendJson(conn, new ServerResponse
                         {
                             status = "success",
-                            message = $"Opponent says: {content}"
-                        }), conn);
-                    }
+                            message = $"Opponent says: {msg.content}"
+                        });
                 }
                 break;
             }
         }
     }
 
+    private void RemoveFromAllRooms(NetworkConnection sender)
+    {
+        foreach (var key in new List<string>(gameRooms.Keys))
+        {
+            var room = gameRooms[key];
+            if (room.Remove(sender) && room.Count == 0)
+                gameRooms.Remove(key);
+        }
+    }
+
+    private void SendJson<T>(NetworkConnection conn, T obj)
+    {
+        string json = JsonUtility.ToJson(obj);
+        byte[] data = Encoding.Unicode.GetBytes(json);
+        var buffer = new NativeArray<byte>(data, Allocator.Temp);
+
+        DataStreamWriter writer;
+        networkDriver.BeginSend(reliablePipeline, conn, out writer);
+        writer.WriteInt(buffer.Length);
+        writer.WriteBytes(buffer);
+        networkDriver.EndSend(writer);
+
+        buffer.Dispose();
+    }
 }

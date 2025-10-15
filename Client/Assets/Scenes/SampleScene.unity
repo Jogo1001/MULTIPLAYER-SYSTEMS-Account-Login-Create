@@ -1808,6 +1808,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e1956f60ff1f347979210e93260336d0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  IP: 192.168.2.19
 --- !u!1 &688898065
 GameObject:
   m_ObjectHideFlags: 0
@@ -3689,7 +3690,7 @@ MonoBehaviour:
       m_Calls:
       - m_Target: {fileID: 1086010326}
         m_TargetAssemblyTypeName: LoginUI, Assembly-CSharp
-        m_MethodName: CreateRoomClicked
+        m_MethodName: OnCreateRoomClicked
         m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}

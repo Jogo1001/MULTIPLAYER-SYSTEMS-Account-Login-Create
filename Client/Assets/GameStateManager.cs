@@ -5,16 +5,8 @@ public class GameStateManager : MonoBehaviour
 {
     public static GameStateManager Instance;
 
-    public enum GameState
-    {
-        Login,
-        Lobby,
-        WaitingForOpponent,
-        Playing
-    }
-
+    public enum GameState { Login, Lobby, WaitingForOpponent, Playing }
     public GameState CurrentState { get; private set; }
-
     public event Action<GameState> OnStateChanged;
 
     private void Awake()
@@ -32,8 +24,7 @@ public class GameStateManager : MonoBehaviour
 
     public void ChangeState(GameState newState)
     {
-        if (newState == CurrentState) return;
-
+        if (CurrentState == newState) return;
         CurrentState = newState;
         Debug.Log($"[GameStateManager] Changed to {newState}");
         OnStateChanged?.Invoke(newState);

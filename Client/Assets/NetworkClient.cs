@@ -1,250 +1,139 @@
 using UnityEngine;
-using UnityEngine.Assertions;
 using Unity.Collections;
 using Unity.Networking.Transport;
 using System.Text;
 
 public class NetworkClient : MonoBehaviour
 {
-    NetworkDriver networkDriver;
-    NetworkConnection networkConnection;
-    NetworkPipeline reliableAndInOrderPipeline;
-    NetworkPipeline nonReliableNotInOrderedPipeline;
-    const ushort NetworkPort = 9002;
-    const string IPAddress = "192.168.2.19";
+    private NetworkDriver driver;
+    private NetworkConnection connection;
+    private NetworkPipeline reliablePipeline;
+    private const ushort Port = 9002;
+    [SerializeField] private string IP = "192.168.2.19";
 
-    [System.Serializable]
-    public class LoginRequest
-    {
-        public string action;
-        public string username;
-        public string password;
-    }
+    [System.Serializable] public class ServerResponse { public string status; public string message; }
+    [System.Serializable] public class LoginRequest { public string action; public string username; public string password; }
+    [System.Serializable] public class RoomRequest { public string action; public string roomName; }
+    [System.Serializable] public class PlayMessage { public string action; public string content; }
 
-    [System.Serializable]
-    public class ServerResponse
-    {
-        public string status;
-        public string message;
-    }
-    [System.Serializable]
-    public class RoomRequest
-    {
-        public string action;
-        public string roomName;
-    }
-
-    [System.Serializable]
-    public class PlayMessage
-    {
-        public string action;
-        public string content;
-    }
     void Start()
     {
-        networkDriver = NetworkDriver.Create();
-        reliableAndInOrderPipeline = networkDriver.CreatePipeline(typeof(FragmentationPipelineStage), typeof(ReliableSequencedPipelineStage));
-        nonReliableNotInOrderedPipeline = networkDriver.CreatePipeline(typeof(FragmentationPipelineStage));
-        networkConnection = default(NetworkConnection);
-        NetworkEndpoint endpoint = NetworkEndpoint.Parse(IPAddress, NetworkPort, NetworkFamily.Ipv4);
-        networkConnection = networkDriver.Connect(endpoint);
+        driver = NetworkDriver.Create();
+        reliablePipeline = driver.CreatePipeline(typeof(FragmentationPipelineStage), typeof(ReliableSequencedPipelineStage));
+        connection = driver.Connect(NetworkEndpoint.Parse(IP, Port, NetworkFamily.Ipv4));
+        Debug.Log($"[Client] Connecting to {IP}:{Port}");
     }
 
-    public void OnDestroy()
+    void OnDestroy()
     {
-        networkConnection.Disconnect(networkDriver);
-        networkConnection = default(NetworkConnection);
-        networkDriver.Dispose();
+        if (connection.IsCreated)
+            connection.Disconnect(driver);
+        driver.Dispose();
     }
 
     void Update()
     {
-        #region Check Input and Send Msg
+        driver.ScheduleUpdate().Complete();
+        if (!connection.IsCreated) return;
 
-/*        if (Input.GetKeyDown(KeyCode.A))
-            SendMessageToServer("Hello server's world, sincerely your network client");*/
+        NetworkEvent.Type evt;
+        DataStreamReader reader;
+        NetworkPipeline pipe;
 
-        #endregion
-
-        networkDriver.ScheduleUpdate().Complete();
-
-        #region Check for client to server connection
-
-        if (!networkConnection.IsCreated)
+        while ((evt = connection.PopEvent(driver, out reader, out pipe)) != NetworkEvent.Type.Empty)
         {
-            Debug.Log("Client is unable to connect to server");
-            return;
-        }
-
-        #endregion
-
-        #region Manage Network Events
-
-        NetworkEvent.Type networkEventType;
-        DataStreamReader streamReader;
-        NetworkPipeline pipelineUsedToSendEvent;
-
-        while (PopNetworkEventAndCheckForData(out networkEventType, out streamReader, out pipelineUsedToSendEvent))
-        {
-            if (pipelineUsedToSendEvent == reliableAndInOrderPipeline)
-                Debug.Log("Network event from: reliableAndInOrderPipeline");
-            else if (pipelineUsedToSendEvent == nonReliableNotInOrderedPipeline)
-                Debug.Log("Network event from: nonReliableNotInOrderedPipeline");
-
-            switch (networkEventType)
+            switch (evt)
             {
                 case NetworkEvent.Type.Connect:
-                    Debug.Log("We are now connected to the server");
+                    Debug.Log("[Client] Connected to server.");
                     break;
+
                 case NetworkEvent.Type.Data:
-                    int sizeOfDataBuffer = streamReader.ReadInt();
-                    NativeArray<byte> buffer = new NativeArray<byte>(sizeOfDataBuffer, Allocator.Persistent);
-                    streamReader.ReadBytes(buffer);
-                    byte[] byteBuffer = buffer.ToArray();
-                    string msg = Encoding.Unicode.GetString(byteBuffer);
-                    ProcessReceivedMsg(msg);
+                    int size = reader.ReadInt();
+                    var buffer = new NativeArray<byte>(size, Allocator.Temp);
+                    reader.ReadBytes(buffer);
+                    string msg = Encoding.Unicode.GetString(buffer.ToArray());
                     buffer.Dispose();
+                    ProcessServerMessage(msg);
                     break;
+
                 case NetworkEvent.Type.Disconnect:
-                    Debug.Log("Client has disconnected from server");
-                    networkConnection = default(NetworkConnection);
+                    Debug.Log("[Client] Disconnected from server.");
+                    connection = default;
                     break;
             }
         }
-
-        #endregion
     }
 
-    private bool PopNetworkEventAndCheckForData(out NetworkEvent.Type networkEventType, out DataStreamReader streamReader, out NetworkPipeline pipelineUsedToSendEvent)
+    private void ProcessServerMessage(string msg)
     {
-        networkEventType = networkConnection.PopEvent(networkDriver, out streamReader, out pipelineUsedToSendEvent);
-
-        if (networkEventType == NetworkEvent.Type.Empty)
-            return false;
-        return true;
-    }
-
-    private void ProcessReceivedMsg(string msg)
-    {
-        // handle server response
-        ServerResponse response = JsonUtility.FromJson<ServerResponse>(msg);
-        Debug.Log($"Server Response: {response.status} - {response.message}");
-
+        var response = JsonUtility.FromJson<ServerResponse>(msg);
         var ui = FindObjectOfType<LoginUI>();
-        if (ui == null)
-        {
-            Debug.LogWarning("No LoginUI found in the scene to process server response.");
-            return;
-        }
+        if (ui == null) return;
 
-        // Forward a response to UI feedback
-        ui.SetFeedback(response.message);
+        Debug.Log($"[Client] Server: {response.status} - {response.message}");
 
-        // If login is successful, switch UI and update feedback text
-        if (response.status == "success" && response.message.Contains("Login successful"))
-        {
-            ui.SwitchToLoggedInUI();
-            ui.SetFeedback(" Login successful! Welcome, " + ui.usernameField.text + "!");
-        }
-
-        // If account creation is successful, show feedback
-        else if (response.status == "success" && response.message.Contains("Account created"))
-        {
-            ui.SetFeedback("Account created successfully! You can now log in.");
-        }
-
-        // If there’s an error message
-        else if (response.status == "error")
-        {
-            ui.SetFeedback("x " + response.message);
-        }
         switch (response.status)
-    {
-        case "success":
-            if (response.message.Contains("waiting"))
-            {
-                ui.roomStatusText.text = "Waiting for an opponent...";
-                GameStateManager.Instance.ChangeState(GameStateManager.GameState.WaitingForOpponent);
-            }
-            else if (response.message.Contains("joined"))
-            {
-                ui.roomStatusText.text = "Opponent found! Start playing.";
-                GameStateManager.Instance.ChangeState(GameStateManager.GameState.Playing);
-            }
-            else if (response.message.Contains("play"))
-            {
-                Debug.Log($"Opponent action: {response.message}");
-            }
-            break;
+        {
+            case "success":
+                if (response.message.Contains("Login"))
+                {
+                    ui.SwitchToLoggedInUI();
+                    ui.SetFeedback(response.message);
+                }
+                else if (response.message.Contains("Waiting"))
+                {
+                    ui.roomStatusText.text = "Waiting for an opponent...";
+                    GameStateManager.Instance.ChangeState(GameStateManager.GameState.WaitingForOpponent);
+                }
+                else if (response.message.Contains("Joined"))
+                {
+                    ui.roomStatusText.text = "Opponent found! Start playing.";
+                    GameStateManager.Instance.ChangeState(GameStateManager.GameState.Playing);
+                }
+                else
+                {
+                    ui.SetFeedback(response.message);
+                }
+                break;
 
-        case "info":
-            ui.SetFeedback(response.message);
-            break;
+            case "info":
+                ui.SetFeedback(response.message);
+                break;
 
-        case "error":
-            ui.SetFeedback("x " + response.message);
-            break;
+            case "error":
+                ui.SetFeedback("Error: " + response.message);
+                break;
+        }
     }
-    }
 
-    public void SendMessageToServer(string msg)
+    private void SendJson(object obj)
     {
-        byte[] msgAsByteArray = Encoding.Unicode.GetBytes(msg);
-        NativeArray<byte> buffer = new NativeArray<byte>(msgAsByteArray, Allocator.Persistent);
+        string json = JsonUtility.ToJson(obj);
+        byte[] bytes = Encoding.Unicode.GetBytes(json);
+        var buffer = new NativeArray<byte>(bytes, Allocator.Temp);
 
-        DataStreamWriter streamWriter;
-        networkDriver.BeginSend(reliableAndInOrderPipeline, networkConnection, out streamWriter);
-        streamWriter.WriteInt(buffer.Length);
-        streamWriter.WriteBytes(buffer);
-        networkDriver.EndSend(streamWriter);
+        DataStreamWriter writer;
+        driver.BeginSend(reliablePipeline, connection, out writer);
+        writer.WriteInt(buffer.Length);
+        writer.WriteBytes(buffer);
+        driver.EndSend(writer);
 
         buffer.Dispose();
     }
-    public void SendLoginRequest(string username, string password)
-    {
-        LoginRequest req = new LoginRequest
-        {
-            action = "login",
-            username = username,
-            password = password
-        };
 
-        string json = JsonUtility.ToJson(req);
-        SendMessageToServer(json);
-    }
+    public void SendLogin(string user, string pass)
+        => SendJson(new LoginRequest { action = "login", username = user, password = pass });
 
-    public void SendCreateAccountRequest(string username, string password)
-    {
-        LoginRequest req = new LoginRequest
-        {
-            action = "create",
-            username = username,
-            password = password
-        };
+    public void SendCreate(string user, string pass)
+        => SendJson(new LoginRequest { action = "create", username = user, password = pass });
 
-        string json = JsonUtility.ToJson(req);
-        SendMessageToServer(json);
-    }
-    public void SendJoinOrCreateRoomRequest(string roomName)
-    {
-        RoomRequest req = new RoomRequest { action = "joinOrCreateRoom", roomName = roomName };
-        string json = JsonUtility.ToJson(req);
-        SendMessageToServer(json);
-    }
+    public void SendJoinRoom(string room)
+        => SendJson(new RoomRequest { action = "joinOrCreateRoom", roomName = room });
 
-    public void SendLeaveRoomRequest()
-    {
-        RoomRequest req = new RoomRequest { action = "leaveRoom" };
-        string json = JsonUtility.ToJson(req);
-        SendMessageToServer(json);
-    }
+    public void SendLeaveRoom()
+        => SendJson(new RoomRequest { action = "leaveRoom" });
 
-    public void SendPlayMessage(string message)
-    {
-        PlayMessage msg = new PlayMessage { action = "playAction", content = message };
-        string json = JsonUtility.ToJson(msg);
-        SendMessageToServer(json);
-    }
-
+    public void SendPlay(string content)
+        => SendJson(new PlayMessage { action = "playAction", content = content });
 }
-

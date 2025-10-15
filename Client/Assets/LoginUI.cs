@@ -1,99 +1,73 @@
 using UnityEngine;
-using UnityEngine.UI;
 using TMPro;
 
 public class LoginUI : MonoBehaviour
 {
-
     public NetworkClient networkClient;
 
-
-    [Header("Game Login UI")]
+    [Header("Login UI")]
     public TMP_InputField usernameField;
     public TMP_InputField passwordField;
     public TMP_Text feedbackText;
     public GameObject loginPanel;
     public GameObject loggedInPanel;
 
-    [Header("Game Room UI")]
+    [Header("Room UI")]
     public GameObject gameRoomPanel;
     public TMP_InputField roomNameField;
     public TMP_Text roomStatusText;
     public GameObject waitingPanel;
     public GameObject playingPanel;
 
-    // this function called when login button is click
+    void Start() => GameStateManager.Instance.OnStateChanged += HandleStateChange;
 
-    void Start()
-    {
-        GameStateManager.Instance.OnStateChanged += HandleGameStateChanged;
-    }
-    public void OnLoginClicked()
-    {
-        networkClient.SendLoginRequest(usernameField.text, passwordField.text);
-        gameRoomPanel.SetActive(true);
-    }
+    public void OnLoginClicked() => networkClient.SendLogin(usernameField.text, passwordField.text);
+    public void OnCreateAccountClicked() => networkClient.SendCreate(usernameField.text, passwordField.text);
 
-    // this function called when create account button is click
-    public void OnCreateAccountClicked()
-    {
-        networkClient.SendCreateAccountRequest(usernameField.text, passwordField.text);
-    }
+    public void SetFeedback(string message) => feedbackText.text = message;
 
-    // updates feedback text
-    public void SetFeedback(string message)
-    {
-        feedbackText.text = message;
-    }
-
-    //switch ui from loginscreen to logged screen
-    //display welcome message
     public void SwitchToLoggedInUI()
     {
         loginPanel.SetActive(false);
         loggedInPanel.SetActive(true);
-     
-        SetFeedback("Welcome!");
-         GameStateManager.Instance.ChangeState(GameStateManager.GameState.Lobby);
+        gameRoomPanel.SetActive(true);
+        GameStateManager.Instance.ChangeState(GameStateManager.GameState.Lobby);
     }
-    private void HandleGameStateChanged(GameStateManager.GameState state)
+
+    private void HandleStateChange(GameStateManager.GameState state)
     {
-  /*      loginPanel.SetActive(state == GameStateManager.GameState.Login);
+        loginPanel.SetActive(state == GameStateManager.GameState.Login);
         loggedInPanel.SetActive(state == GameStateManager.GameState.Lobby);
         waitingPanel.SetActive(state == GameStateManager.GameState.WaitingForOpponent);
-        playingPanel.SetActive(state == GameStateManager.GameState.Playing);*/
+        playingPanel.SetActive(state == GameStateManager.GameState.Playing);
     }
-    public void CreateRoomClicked()
+
+    public void OnCreateRoomClicked()
     {
+        if (string.IsNullOrEmpty(roomNameField.text)) return;
+        networkClient.SendJoinRoom(roomNameField.text);
+        GameStateManager.Instance.ChangeState(GameStateManager.GameState.WaitingForOpponent);
         waitingPanel.SetActive(true);
-        string roomName = roomNameField.text;
-        if (string.IsNullOrEmpty(roomName)) return;
-        networkClient.SendJoinOrCreateRoomRequest(roomName);
-        gameRoomPanel.SetActive(false) ;
-        loggedInPanel.SetActive(false);
-      
+        gameRoomPanel.SetActive(false);
     }
 
     public void OnBackFromWaitingClicked()
     {
-        networkClient.SendLeaveRoomRequest();
+        networkClient.SendLeaveRoom();
         GameStateManager.Instance.ChangeState(GameStateManager.GameState.Lobby);
-        gameRoomPanel.SetActive(true);
-        loggedInPanel.SetActive(true);
         waitingPanel.SetActive(false);
+        gameRoomPanel.SetActive(true);
     }
 
     public void OnLeaveMatchClicked()
     {
-        networkClient.SendLeaveRoomRequest();
+        networkClient.SendLeaveRoom();
         GameStateManager.Instance.ChangeState(GameStateManager.GameState.Lobby);
         loginPanel.SetActive(true);
-        loggedInPanel.SetActive(true);
-        waitingPanel.SetActive(false);
     }
 
     public void OnSendPlayMessageClicked()
     {
-        networkClient.SendPlayMessage("Player pressed the play button!");
+        networkClient.SendPlay("Player pressed the play button!");
     }
 }
