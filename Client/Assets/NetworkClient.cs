@@ -27,6 +27,19 @@ public class NetworkClient : MonoBehaviour
         public string status;
         public string message;
     }
+    [System.Serializable]
+    public class RoomRequest
+    {
+        public string action;
+        public string roomName;
+    }
+
+    [System.Serializable]
+    public class PlayMessage
+    {
+        public string action;
+        public string content;
+    }
     void Start()
     {
         networkDriver = NetworkDriver.Create();
@@ -142,6 +155,7 @@ public class NetworkClient : MonoBehaviour
         {
             ui.SetFeedback("x " + response.message);
         }
+
     }
 
     public void SendMessageToServer(string msg)
@@ -170,7 +184,6 @@ public class NetworkClient : MonoBehaviour
         SendMessageToServer(json);
     }
 
-    //sends an account request to server
     public void SendCreateAccountRequest(string username, string password)
     {
         LoginRequest req = new LoginRequest
@@ -183,5 +196,26 @@ public class NetworkClient : MonoBehaviour
         string json = JsonUtility.ToJson(req);
         SendMessageToServer(json);
     }
+    public void SendJoinOrCreateRoomRequest(string roomName)
+    {
+        RoomRequest req = new RoomRequest { action = "joinOrCreateRoom", roomName = roomName };
+        string json = JsonUtility.ToJson(req);
+        SendMessageToServer(json);
+    }
+
+    public void SendLeaveRoomRequest()
+    {
+        RoomRequest req = new RoomRequest { action = "leaveRoom" };
+        string json = JsonUtility.ToJson(req);
+        SendMessageToServer(json);
+    }
+
+    public void SendPlayMessage(string message)
+    {
+        PlayMessage msg = new PlayMessage { action = "playAction", content = message };
+        string json = JsonUtility.ToJson(msg);
+        SendMessageToServer(json);
+    }
+
 }
 
