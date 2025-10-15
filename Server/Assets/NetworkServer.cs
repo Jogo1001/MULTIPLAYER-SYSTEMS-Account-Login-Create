@@ -3,6 +3,7 @@ using UnityEngine.Assertions;
 using Unity.Collections;
 using Unity.Networking.Transport;
 using System.Text;
+using System.Collections.Generic;
 
 public class NetworkServer : MonoBehaviour
 {
@@ -30,7 +31,20 @@ public class NetworkServer : MonoBehaviour
         public string status;
         public string message;
     }
+    [System.Serializable]
+    public class RoomRequest
+    {
+        public string action;
+        public string roomName;
+    }
 
+    [System.Serializable]
+    public class PlayMessage
+    {
+        public string action;
+        public string content;
+    }
+    private Dictionary<string, List<NetworkConnection>> gameRooms = new Dictionary<string, List<NetworkConnection>>();
     void Start()
     {
         networkDriver = NetworkDriver.Create();
@@ -158,13 +172,44 @@ public class NetworkServer : MonoBehaviour
         try
         {
             LoginRequest request = JsonUtility.FromJson<LoginRequest>(msg);
+            var req = JsonUtility.FromJson<LoginRequest>(msg);
 
             if (request == null || string.IsNullOrEmpty(request.action))
             {
                 Debug.LogWarning(" Invalid message format");
                 return;
             }
+            if (req != null && (req.action == "login" || req.action == "create"))
+            {
+                HandleLogin(req, sender);
+                return;
+            }
+            if (req != null && (req.action == "login" || req.action == "create"))
+            {
+                HandleLogin(req, sender);
+                return;
+            }
 
+            // Handle room-related actions
+            var roomReq = JsonUtility.FromJson<RoomRequest>(msg);
+            if (roomReq != null && roomReq.action == "joinOrCreateRoom")
+            {
+                HandleJoinOrCreateRoom(roomReq.roomName, sender);
+                return;
+            }
+
+            if (roomReq != null && roomReq.action == "leaveRoom")
+            {
+                HandleLeaveRoom(sender);
+                return;
+            }
+
+            var playMsg = JsonUtility.FromJson<PlayMessage>(msg);
+            if (playMsg != null && playMsg.action == "playAction")
+            {
+                HandlePlayMessage(playMsg.content, sender);
+                return;
+            }
             ServerResponse response = new ServerResponse();
 
             if (request.action == "create")
@@ -210,6 +255,90 @@ public class NetworkServer : MonoBehaviour
         networkDriver.EndSend(streamWriter);
 
         buffer.Dispose();
+    }
+    private void HandleLogin(LoginRequest request, NetworkConnection sender)
+    {
+        ServerResponse response = new ServerResponse
+        {
+            status = "success",
+            message = request.action == "create" ? "Account created successfully!" : "Login successful!"
+        };
+        SendMessageToClient(JsonUtility.ToJson(response), sender);
+    }
+
+    private void HandleJoinOrCreateRoom(string roomName, NetworkConnection sender)
+    {
+        if (!gameRooms.ContainsKey(roomName))
+            gameRooms[roomName] = new List<NetworkConnection>();
+
+        var room = gameRooms[roomName];
+
+        if (!room.Contains(sender))
+            room.Add(sender);
+
+        ServerResponse response = new ServerResponse();
+
+        if (room.Count == 1)
+        {
+            response.status = "success";
+            response.message = "waiting for opponent...";
+            SendMessageToClient(JsonUtility.ToJson(response), sender);
+        }
+        else if (room.Count == 2)
+        {
+            response.status = "success";
+            response.message = "joined room - start playing!";
+            SendMessageToClient(JsonUtility.ToJson(response), room[0]);
+            SendMessageToClient(JsonUtility.ToJson(response), room[1]);
+        }
+        else
+        {
+            response.status = "error";
+            response.message = "Room full.";
+            SendMessageToClient(JsonUtility.ToJson(response), sender);
+        }
+    }
+
+    private void HandleLeaveRoom(NetworkConnection sender)
+    {
+        foreach (var room in gameRooms)
+        {
+            if (room.Value.Contains(sender))
+            {
+                room.Value.Remove(sender);
+                if (room.Value.Count == 0)
+                    gameRooms.Remove(room.Key);
+                break;
+            }
+        }
+
+        SendMessageToClient(JsonUtility.ToJson(new ServerResponse
+        {
+            status = "info",
+            message = "You have left the room."
+        }), sender);
+    }
+
+    private void HandlePlayMessage(string content, NetworkConnection sender)
+    {
+        foreach (var room in gameRooms)
+        {
+            if (room.Value.Contains(sender))
+            {
+                foreach (var conn in room.Value)
+                {
+                    if (conn != sender)
+                    {
+                        SendMessageToClient(JsonUtility.ToJson(new ServerResponse
+                        {
+                            status = "success",
+                            message = $"Opponent says: {content}"
+                        }), conn);
+                    }
+                }
+                break;
+            }
+        }
     }
 
 }

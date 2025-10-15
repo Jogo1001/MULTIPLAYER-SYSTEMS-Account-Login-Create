@@ -132,7 +132,10 @@ public class NetworkClient : MonoBehaviour
 
         var ui = FindObjectOfType<LoginUI>();
         if (ui == null)
+        {
+            Debug.LogWarning("No LoginUI found in the scene to process server response.");
             return;
+        }
 
         // Forward a response to UI feedback
         ui.SetFeedback(response.message);
@@ -155,7 +158,33 @@ public class NetworkClient : MonoBehaviour
         {
             ui.SetFeedback("x " + response.message);
         }
+        switch (response.status)
+    {
+        case "success":
+            if (response.message.Contains("waiting"))
+            {
+                ui.roomStatusText.text = "Waiting for an opponent...";
+                GameStateManager.Instance.ChangeState(GameStateManager.GameState.WaitingForOpponent);
+            }
+            else if (response.message.Contains("joined"))
+            {
+                ui.roomStatusText.text = "Opponent found! Start playing.";
+                GameStateManager.Instance.ChangeState(GameStateManager.GameState.Playing);
+            }
+            else if (response.message.Contains("play"))
+            {
+                Debug.Log($"Opponent action: {response.message}");
+            }
+            break;
 
+        case "info":
+            ui.SetFeedback(response.message);
+            break;
+
+        case "error":
+            ui.SetFeedback("x " + response.message);
+            break;
+    }
     }
 
     public void SendMessageToServer(string msg)

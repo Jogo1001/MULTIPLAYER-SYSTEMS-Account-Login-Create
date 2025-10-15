@@ -21,10 +21,13 @@ public class LoginUI : MonoBehaviour
     public TMP_Text roomStatusText;
     public GameObject waitingPanel;
     public GameObject playingPanel;
- 
+
     // this function called when login button is click
 
-
+    void Start()
+    {
+        GameStateManager.Instance.OnStateChanged += HandleGameStateChanged;
+    }
     public void OnLoginClicked()
     {
         networkClient.SendLoginRequest(usernameField.text, passwordField.text);
@@ -49,35 +52,44 @@ public class LoginUI : MonoBehaviour
     {
         loginPanel.SetActive(false);
         loggedInPanel.SetActive(true);
+     
         SetFeedback("Welcome!");
+         GameStateManager.Instance.ChangeState(GameStateManager.GameState.Lobby);
     }
     private void HandleGameStateChanged(GameStateManager.GameState state)
     {
-        loginPanel.SetActive(state == GameStateManager.GameState.Login);
+  /*      loginPanel.SetActive(state == GameStateManager.GameState.Login);
         loggedInPanel.SetActive(state == GameStateManager.GameState.Lobby);
         waitingPanel.SetActive(state == GameStateManager.GameState.WaitingForOpponent);
-        playingPanel.SetActive(state == GameStateManager.GameState.Playing);
+        playingPanel.SetActive(state == GameStateManager.GameState.Playing);*/
     }
-    public void CreateOrJoinRoomClicked()
+    public void CreateRoomClicked()
     {
+        waitingPanel.SetActive(true);
         string roomName = roomNameField.text;
         if (string.IsNullOrEmpty(roomName)) return;
         networkClient.SendJoinOrCreateRoomRequest(roomName);
         gameRoomPanel.SetActive(false) ;
-        waitingPanel.SetActive(true) ;
-
+        loggedInPanel.SetActive(false);
+      
     }
 
     public void OnBackFromWaitingClicked()
     {
         networkClient.SendLeaveRoomRequest();
         GameStateManager.Instance.ChangeState(GameStateManager.GameState.Lobby);
+        gameRoomPanel.SetActive(true);
+        loggedInPanel.SetActive(true);
+        waitingPanel.SetActive(false);
     }
 
     public void OnLeaveMatchClicked()
     {
         networkClient.SendLeaveRoomRequest();
         GameStateManager.Instance.ChangeState(GameStateManager.GameState.Lobby);
+        loginPanel.SetActive(true);
+        loggedInPanel.SetActive(true);
+        waitingPanel.SetActive(false);
     }
 
     public void OnSendPlayMessageClicked()
